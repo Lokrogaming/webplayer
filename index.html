@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LOKRO Player</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05070D;
+    --surface:#0B0F1A;
+    --surface-2:#0E1420;
+    --border:#17202E;
+    --accent:#0877F9;
+    --accent-soft:rgba(8,119,249,0.14);
+    --text:#EAF0FF;
+    --muted:#7C8AA3;
+  }
+  html,body{background:var(--bg);}
+  body{font-family:'Inter',sans-serif;color:var(--text);}
+  .font-display{font-family:'Space Grotesk',sans-serif;}
+  .font-mono{font-family:'JetBrains Mono',monospace;}
+
+  .chamfer{
+    clip-path:polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+  }
+  .chamfer-sm{
+    clip-path:polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  }
+
+  #net{position:fixed;inset:0;z-index:0;opacity:.55;}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    height:3px;background:var(--border);border-radius:2px;outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:12px;height:12px;border-radius:2px;background:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);
+    margin-top:0;cursor:pointer;
+    transform:rotate(45deg);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:12px;height:12px;border-radius:2px;background:var(--accent);
+    border:none;box-shadow:0 0 0 3px var(--accent-soft);cursor:pointer;
+    transform:rotate(45deg);
+  }
+  input[type=range]#seek{height:4px;}
+
+  .track-row{transition:background .15s ease, border-color .15s ease;}
+  .track-row.active{background:var(--accent-soft);border-left-color:var(--accent) !important;}
+  .track-row:hover{background:var(--surface-2);}
+
+  .spin-slow{animation:spin 6s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .paused-spin{animation-play-state:paused;}
+
+  .bars span{display:inline-block;width:3px;background:var(--accent);border-radius:1px;}
+  @keyframes bounce1{0%,100%{height:4px}50%{height:16px}}
+  @keyframes bounce2{0%,100%{height:10px}50%{height:4px}}
+  @keyframes bounce3{0%,100%{height:6px}50%{height:14px}}
+  .playing .bars span:nth-child(1){animation:bounce1 .9s ease-in-out infinite}
+  .playing .bars span:nth-child(2){animation:bounce2 .8s ease-in-out infinite}
+  .playing .bars span:nth-child(3){animation:bounce3 1.1s ease-in-out infinite}
+  .bars:not(.playing) span{height:4px !important;animation:none !important;}
+
+  #toast{transition:opacity .25s ease, transform .25s ease;}
+
+  ::selection{background:var(--accent);color:#fff;}
+</style>
+</head>
+<body class="min-h-screen relative overflow-x-hidden">
+
+<canvas id="net"></canvas>
+
+<main class="relative z-10 min-h-screen flex items-center justify-center px-4 py-10">
+  <div class="w-full max-w-md">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-5 px-1">
+      <div class="flex items-center gap-2">
+        <div class="w-2 h-2 bg-[var(--accent)]"></div>
+        <span class="font-mono text-xs tracking-wide text-[var(--muted)]">lokro.dev / player</span>
+      </div>
+      <button id="shareBtn" class="font-mono text-xs text-[var(--muted)] hover:text-[var(--text)] border border-[var(--border)] px-2.5 py-1 chamfer-sm transition-colors">
+        teilen
+      </button>
+    </div>
+
+    <!-- Player Card -->
+    <div class="bg-[var(--surface)] border border-[var(--border)] chamfer p-6 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)]">
+
+      <div class="flex gap-4 items-center">
+        <!-- Cover -->
+        <div class="relative w-20 h-20 shrink-0 chamfer-sm bg-[var(--surface-2)] border border-[var(--border)] overflow-hidden">
+          <img id="cover" src="" alt="" class="w-full h-full object-cover hidden">
+          <div id="coverFallback" class="w-full h-full flex items-center justify-center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.4"/></svg>
+          </div>
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <p id="title" class="font-display font-semibold text-lg leading-tight truncate">–</p>
+          <p id="artist" class="text-sm text-[var(--muted)] truncate mt-0.5">–</p>
+          <div id="eq" class="bars flex items-end gap-[3px] h-4 mt-2">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Seek -->
+      <div class="mt-5">
+        <input id="seek" type="range" min="0" max="100" value="0" class="w-full">
+        <div class="flex justify-between mt-1.5 font-mono text-[11px] text-[var(--muted)]">
+          <span id="time">0:00</span>
+          <span id="duration">0:00</span>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex items-center justify-center gap-6 mt-5">
+        <button id="prevBtn" class="text-[var(--muted)] hover:text-[var(--text)] transition-colors" aria-label="Vorheriger Track">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button id="playBtn" class="w-14 h-14 flex items-center justify-center bg-[var(--accent)] text-[#05070D] chamfer-sm hover:opacity-90 transition-opacity" aria-label="Play/Pause">
+          <svg id="playIcon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pauseIcon" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        </button>
+        <button id="nextBtn" class="text-[var(--muted)] hover:text-[var(--text)] transition-colors" aria-label="Nächster Track">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg>
+        </button>
+      </div>
+
+      <!-- Volume -->
+      <div class="flex items-center gap-2 mt-5">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.8"><path d="M4 9v6h4l5 5V4L8 9H4z"/></svg>
+        <input id="volume" type="range" min="0" max="100" value="80" class="w-full">
+      </div>
+    </div>
+
+    <!-- Track list -->
+    <div class="mt-4 bg-[var(--surface)] border border-[var(--border)] chamfer overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-[var(--border)] font-mono text-[11px] tracking-wide text-[var(--muted)]">
+        tracks.json
+      </div>
+      <div id="trackList" class="max-h-72 overflow-y-auto"></div>
+    </div>
+
+    <p id="statusMsg" class="text-center text-xs text-[var(--muted)] font-mono mt-4 h-4"></p>
+  </div>
+</main>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[var(--surface-2)] border border-[var(--accent)] text-sm px-4 py-2 chamfer-sm font-mono opacity-0 translate-y-2 pointer-events-none z-50">
+  Link kopiert
+</div>
+
+<script>
+/* ============================================================
+   TRACKS – hier Songs definieren.
+   id      : eindeutige ID (wird für ?song=ID im Share-Link genutzt)
+   title   : Songtitel
+   artist  : Künstler
+   path    : URL/Pfad zur Audiodatei (wird gestreamt, kein Download nötig)
+   cover   : optionale URL zu einem Cover-Bild
+   ============================================================ */
+const TRACKS = [
+  {
+    id: "rottenflesh-1",
+    title: "Rotten Flesh 1",
+    artist: "LOKRO",
+    path: "rottenflesh-1.mp3",
+    cover: ""
+  },
+  {
+    id: "rottenflesh-2",
+    title: "Rotten Flesh 2",
+    artist: "LOKRO",
+    path: "rottenflesh-2.mp3",
+    cover: ""
+  }
+];
+
+// ---------- State ----------
+const audio = new Audio();
+audio.preload = "metadata";
+let currentIndex = 0;
+
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id);
+const els = {
+  title: $("title"), artist: $("artist"), cover: $("cover"), coverFallback: $("coverFallback"),
+  seek: $("seek"), time: $("time"), duration: $("duration"),
+  playBtn: $("playBtn"), playIcon: $("playIcon"), pauseIcon: $("pauseIcon"),
+  prevBtn: $("prevBtn"), nextBtn: $("nextBtn"),
+  volume: $("volume"), trackList: $("trackList"),
+  shareBtn: $("shareBtn"), toast: $("toast"), status: $("statusMsg"),
+  eq: $("eq")
+};
+
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function renderTrackList() {
+  els.trackList.innerHTML = "";
+  TRACKS.forEach((t, i) => {
+    const row = document.createElement("button");
+    row.className = "track-row w-full text-left flex items-center gap-3 px-4 py-3 border-l-2 border-transparent border-b border-[var(--border)] last:border-b-0";
+    row.innerHTML = `
+      <span class="font-mono text-[11px] text-[var(--muted)] w-5 shrink-0">${(i + 1).toString().padStart(2, "0")}</span>
+      <span class="min-w-0 flex-1">
+        <span class="block text-sm truncate">${escapeHtml(t.title)}</span>
+        <span class="block text-xs text-[var(--muted)] truncate">${escapeHtml(t.artist)}</span>
+      </span>
+    `;
+    row.addEventListener("click", () => loadTrack(i, true));
+    row.dataset.index = i;
+    els.trackList.appendChild(row);
+  });
+}
+
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.textContent = str ?? "";
+  return d.innerHTML;
+}
+
+function updateActiveRow() {
+  [...els.trackList.children].forEach((row, i) => {
+    row.classList.toggle("active", i === currentIndex);
+  });
+}
+
+function loadTrack(index, autoplay) {
+  currentIndex = ((index % TRACKS.length) + TRACKS.length) % TRACKS.length;
+  const t = TRACKS[currentIndex];
+  audio.src = t.path;
+  els.title.textContent = t.title;
+  els.artist.textContent = t.artist;
+
+  if (t.cover) {
+    els.cover.src = t.cover;
+    els.cover.classList.remove("hidden");
+    els.coverFallback.classList.add("hidden");
+  } else {
+    els.cover.classList.add("hidden");
+    els.coverFallback.classList.remove("hidden");
+  }
+
+  els.seek.value = 0;
+  els.time.textContent = "0:00";
+  els.duration.textContent = "0:00";
+  updateActiveRow();
+  updateUrl(t.id);
+
+  if (autoplay) {
+    play();
+  } else {
+    setPlayingUI(false);
+  }
+}
+
+function play() {
+  audio.play().then(() => setPlayingUI(true)).catch(() => {
+    setPlayingUI(false);
+    els.status.textContent = "Tippe auf Play, um zu starten";
+  });
+}
+
+function pause() {
+  audio.pause();
+  setPlayingUI(false);
+}
+
+function setPlayingUI(isPlaying) {
+  els.playIcon.classList.toggle("hidden", isPlaying);
+  els.pauseIcon.classList.toggle("hidden", !isPlaying);
+  els.eq.classList.toggle("playing", isPlaying);
+  if (isPlaying) els.status.textContent = "";
+}
+
+function updateUrl(id) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("song", id);
+  window.history.replaceState({}, "", url);
+}
+
+// ---------- Events ----------
+els.playBtn.addEventListener("click", () => {
+  if (audio.paused) play(); else pause();
+});
+els.prevBtn.addEventListener("click", () => loadTrack(currentIndex - 1, true));
+els.nextBtn.addEventListener("click", () => loadTrack(currentIndex + 1, true));
+
+audio.addEventListener("timeupdate", () => {
+  if (!isFinite(audio.duration)) return;
+  els.seek.value = (audio.currentTime / audio.duration) * 100 || 0;
+  els.time.textContent = fmtTime(audio.currentTime);
+});
+audio.addEventListener("loadedmetadata", () => {
+  els.duration.textContent = fmtTime(audio.duration);
+});
+audio.addEventListener("ended", () => loadTrack(currentIndex + 1, true));
+audio.addEventListener("error", () => {
+  els.status.textContent = "Datei konnte nicht geladen werden";
+});
+
+els.seek.addEventListener("input", () => {
+  if (isFinite(audio.duration)) {
+    audio.currentTime = (els.seek.value / 100) * audio.duration;
+  }
+});
+
+els.volume.addEventListener("input", () => {
+  audio.volume = els.volume.value / 100;
+});
+audio.volume = els.volume.value / 100;
+
+els.shareBtn.addEventListener("click", async () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("song", TRACKS[currentIndex].id);
+  try {
+    await navigator.clipboard.writeText(url.toString());
+    showToast("Link kopiert");
+  } catch {
+    showToast(url.toString());
+  }
+});
+
+let toastTimer;
+function showToast(msg) {
+  els.toast.textContent = msg;
+  els.toast.classList.remove("opacity-0", "translate-y-2");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    els.toast.classList.add("opacity-0", "translate-y-2");
+  }, 2200);
+}
+
+// Keyboard: space to toggle play when not focused in an input
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && document.activeElement.tagName !== "INPUT") {
+    e.preventDefault();
+    audio.paused ? play() : pause();
+  }
+});
+
+// ---------- Init ----------
+renderTrackList();
+
+const params = new URLSearchParams(window.location.search);
+const sharedId = params.get("song");
+const sharedIndex = TRACKS.findIndex((t) => t.id === sharedId);
+
+if (sharedIndex !== -1) {
+  loadTrack(sharedIndex, true); // Versucht Autoplay; Browser kann das ohne Nutzerinteraktion blockieren
+} else {
+  loadTrack(0, false);
+}
+
+// ---------- Background network canvas ----------
+(function network() {
+  const canvas = $("net");
+  const ctx = canvas.getContext("2d");
+  let w, h, points;
+
+  function resize() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    const count = Math.max(18, Math.floor((w * h) / 60000));
+    points = Array.from({ length: count }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.25,
+      vy: (Math.random() - 0.5) * 0.25
+    }));
+  }
+
+  function tick() {
+    ctx.clearRect(0, 0, w, h);
+    points.forEach((p) => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > w) p.vx *= -1;
+      if (p.y < 0 || p.y > h) p.vy *= -1;
+    });
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        const dx = points[i].x - points[j].x;
+        const dy = points[i].y - points[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 140) {
+          ctx.strokeStyle = `rgba(8,119,249,${0.12 * (1 - dist / 140)})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(points[i].x, points[i].y);
+          ctx.lineTo(points[j].x, points[j].y);
+          ctx.stroke();
+        }
+      }
+      ctx.fillStyle = "rgba(8,119,249,0.5)";
+      ctx.beginPath();
+      ctx.arc(points[i].x, points[i].y, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener("resize", resize);
+  resize();
+  tick();
+})();
+</script>
+</body>
+</html>
